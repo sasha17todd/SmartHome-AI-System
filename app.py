@@ -1,10 +1,13 @@
 import streamlit as st
 from openai import AzureOpenAI
 import json
+import re
 
-# AZURE AI FOUNDRY CONFIGURATION
+# ==========================================
+# 1. AZURE AI FOUNDRY CONFIGURATION
+# ==========================================
 AI_ENDPOINT = st.secrets["AI_ENDPOINT"]
-AI_KEY = st.secrets["AI_ENDPOINT"]
+AI_KEY = st.secrets["AI_KEY"]
 DEPLOYMENT_NAME = "gpt-4o-mini"
 
 # Initialize Azure OpenAI Client
@@ -23,7 +26,7 @@ You must respond EXCLUSIVELY in a valid JSON format containing exactly four fiel
 2. "climate_action": Options: "SET_TEMPERATURE", "TURN_OFF_AC", "NOTHING".
 3. "target_temp": A float number for the new temperature. (If no climate change, keep it equal to current room temp).
 4. "light_hex": A string representing a valid 6-character Hexadecimal color code (e.g., "#FFFFFF", "#FF9900") that perfectly matches the user's requested mood or command.
-   - REPARARE: If they ask to "turn on the lights", "light up", or want normal/bright white lighting, generate a clean white hex code ("#FFFFFF").
+   - FIX: If they ask to "turn on the lights", "light up", or want normal/bright white lighting, generate a clean white hex code ("#FFFFFF").
    - If they ask for "golden hour", generate a warm amber/sunset hex code.
    - If they want to sleep or turn off, generate a very dark or black code ("#0A0A0A").
    - If they ask for a specific mood (party, neon, ocean, forest, beach), translate that mood into a beautiful background Hex color.
@@ -42,7 +45,7 @@ if "current_light_hex" not in st.session_state:
 
 chosen_bg = st.session_state.current_light_hex
 
-# Calculăm culoarea textului din dreapta în funcție de fundalul generat de AI
+# Dynamically calculate main UI contrast text color based on AI generated background brightness
 def get_contrast_color(hex_str):
     hex_str = hex_str.lstrip('#')
     r, g, b = tuple(int(hex_str[i:i+2], 16) for i in (0, 2, 4))
@@ -51,17 +54,17 @@ def get_contrast_color(hex_str):
 
 chosen_text = get_contrast_color(chosen_bg)
 
-# Definim o temă întunecată fixă și extrem de lizibilă pentru bara din stânga (Sidebar)
+# Define a static dark theme layout for the left-side panel (Sidebar)
 SIDEBAR_BG = "#121316"
 SIDEBAR_TEXT = "#FFFFFF"
 SIDEBAR_WIDGET_BG = "#1A1C23"
 SIDEBAR_BORDER = "#2D313E"
 
-# INJECTARE CSS AVANSATĂ
+# ADVANCED CUSTOM CSS INJECTION
 st.markdown(
     f"""
     <style>
-    /* 1. ZONA DIN DREAPTA (PANOUL PRINCIPAL) */
+    /* 1. RIGHT PANEL AREA (MAIN APPLICATION INTERFACE) */
     .stApp {{
         background-color: {chosen_bg} !important;
         color: {chosen_text} !important;
@@ -74,7 +77,7 @@ st.markdown(
         color: {chosen_text} !important;
     }}
     
-    /* Caseta de text din dreapta - Mereu fundal alb, text negru */
+    /* User Input Text Box Override - Forced Clean White Background with Intense Dark Text */
     div[data-testid="stTextInput"] div[data-baseweb="input"],
     div[data-testid="stTextInput"] div[data-baseweb="input"] > div {{
         background-color: #FFFFFF !important;
@@ -90,7 +93,7 @@ st.markdown(
         color: #666666 !important;
     }}
     
-    /* REPARARE BUTON: Forțăm fundalul alb și textul NEGRU, eliminând stilul nativ de temă din Streamlit */
+    /* Command Button Layout Styling - Locks Text to Dark Regardless of Underlying Page Theme */
     .stButton > button {{
         background-color: #FFFFFF !important;
         color: #111111 !important;
@@ -102,13 +105,13 @@ st.markdown(
         transition: background-color 0.2s ease;
     }}
     
-    /* Forțăm eticheta internă a butonului să rămână neagră indiferent de contrastul temei */
+    /* Forces internal component typography elements to stay dark */
     .stButton > button p, .stButton > button div, .stButton > button span {{
         color: #111111 !important;
         -webkit-text-fill-color: #111111 !important;
     }}
     
-    /* REPARARE HOVER: Se transformă într-un gri deschis, menținând textul negru perfect vizibil */
+    /* Hover Interaction Fix - Switches to Soft Light Gray instead of solid dark background masks */
     .stButton > button:hover {{
         background-color: #E6E6E6 !important;
         border: 2px solid #111111 !important;
@@ -118,7 +121,7 @@ st.markdown(
         -webkit-text-fill-color: #111111 !important;
     }}
     
-    /* 2. ZONA DIN STÂNGA (SIDEBAR SIMULATOR - TEMĂ ÎNTUNECATĂ FIXĂ) */
+    /* 2. LEFT PANEL AREA (SIDEBAR CONTROL SIMULATOR - LOCKED DARK DESIGN) */
     section[data-testid="stSidebar"] {{
         background-color: {SIDEBAR_BG} !important;
         border-right: 1px solid {SIDEBAR_BORDER} !important;
@@ -127,7 +130,7 @@ st.markdown(
         color: {SIDEBAR_TEXT} !important;
     }}
     
-    /* Selectbox-ul pentru AC din stânga */
+    /* AC Selection Box in Sidebar */
     section[data-testid="stSidebar"] div[data-baseweb="select"] {{
         background-color: {SIDEBAR_WIDGET_BG} !important;
         border: 1px solid {SIDEBAR_BORDER} !important;
@@ -137,7 +140,7 @@ st.markdown(
         color: {SIDEBAR_TEXT} !important;
     }}
     
-    /* Dropdown deschis în interiorul simulatorului */
+    /* Open Listbox Dropdown Menus Inside the Sidebar Context */
     div[role="listbox"] {{
         background-color: {SIDEBAR_WIDGET_BG} !important;
         border: 1px solid {SIDEBAR_BORDER} !important;
@@ -192,7 +195,7 @@ if st.button("Send Command"):
             
             raw_content = response.choices[0].message.content.strip()
             
-            # FILTRU SIGURANȚĂ
+            # SANITIZATION FILTER: Strips out unintended markdown formatting wrappers
             if raw_content.startswith("```"):
                 raw_content = re.sub(r"^```[a-zA-Z]*\n", "", raw_content)
                 raw_content = re.sub(r"\n```$", "", raw_content)
