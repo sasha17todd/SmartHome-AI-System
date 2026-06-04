@@ -3,8 +3,8 @@ from openai import AzureOpenAI
 import json
 
 # AZURE AI FOUNDRY CONFIGURATION
-AI_ENDPOINT = ""
-AI_KEY = ""
+AI_ENDPOINT = st.secrets["AI_ENDPOINT"]
+AI_KEY = st.secrets["AI_ENDPOINT"]
 DEPLOYMENT_NAME = "gpt-4o-mini"
 
 # Initialize Azure OpenAI Client
