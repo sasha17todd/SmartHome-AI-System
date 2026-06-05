@@ -2,13 +2,20 @@ import streamlit as st
 from openai import AzureOpenAI
 import json
 import re
+import asyncio
+# Official Azure IoT Hub Device SDK components
+from azure.iot.device.aio import IoTHubDeviceClient
+from azure.iot.device import Message
 
 # ==========================================
-# 1. AZURE AI FOUNDRY CONFIGURATION
+# 1. ENTERPRISE CLOUD CONFIGURATION
 # ==========================================
 AI_ENDPOINT = st.secrets["AI_ENDPOINT"]
 AI_KEY = st.secrets["AI_KEY"]
 DEPLOYMENT_NAME = "gpt-4o-mini"
+
+# Secure primary connection string for your pre-configured Azure IoT Hub resource
+IOT_CONNECTION_STRING = st.secrets["IOT_CONNECTION_STRING"]
 
 # Initialize Azure OpenAI Client
 client = AzureOpenAI(
@@ -33,6 +40,32 @@ You must respond EXCLUSIVELY in a valid JSON format containing exactly four fiel
    - If they don't mention lighting or ambiance, maintain the current hex color provided in the context.
 """
 
+# Asynchronous worker function to stream live telemetry into your Azure IoT Hub
+async def send_azure_iot_telemetry(temperature, ac_status, light_hex):
+    try:
+        # Initialize the secure MQTT client wrapper using the cloud secrets token
+        device_client = IoTHubDeviceClient.create_from_connection_string(IOT_CONNECTION_STRING)
+        await device_client.connect()
+        
+        # Package raw localized state variables into a structured IoT payload
+        telemetry_payload = {
+            "temperature": temperature,
+            "ac_status": ac_status,
+            "current_light_hex": light_hex
+        }
+        
+        # Serialize dictionary to an unformatted JSON string wrapper
+        msg = Message(json.dumps(telemetry_payload))
+        msg.content_encoding = "utf-8"
+        msg.content_type = "application/json"
+        
+        # Dispatch live payload stream directly to the infrastructure
+        await device_client.send_message(msg)
+        await device_client.shutdown()
+        return True
+    except Exception:
+        return False
+
 # ==========================================
 # 2. STATE INITIALIZATION & DESIGN CALCULATIONS
 # ==========================================
@@ -45,7 +78,7 @@ if "current_light_hex" not in st.session_state:
 
 chosen_bg = st.session_state.current_light_hex
 
-# Dynamically calculate main UI contrast text color based on AI generated background brightness
+# Calculate optimal contrast typography tone depending on background brightness values
 def get_contrast_color(hex_str):
     hex_str = hex_str.lstrip('#')
     r, g, b = tuple(int(hex_str[i:i+2], 16) for i in (0, 2, 4))
@@ -54,17 +87,17 @@ def get_contrast_color(hex_str):
 
 chosen_text = get_contrast_color(chosen_bg)
 
-# Define a static dark theme layout for the left-side panel (Sidebar)
+# Explicit layout declarations for the left-side panel theme settings
 SIDEBAR_BG = "#121316"
 SIDEBAR_TEXT = "#FFFFFF"
 SIDEBAR_WIDGET_BG = "#1A1C23"
 SIDEBAR_BORDER = "#2D313E"
 
-# ADVANCED CUSTOM CSS INJECTION
+# ADVANCED GLOBAL CUSTOM CSS INJECTION LOOP
 st.markdown(
     f"""
     <style>
-    /* 1. RIGHT PANEL AREA (MAIN APPLICATION INTERFACE) */
+    /* 1. RIGHT PANEL AREA (MAIN APPLICATION INTERFACE) styling */
     .stApp {{
         background-color: {chosen_bg} !important;
         color: {chosen_text} !important;
@@ -77,7 +110,7 @@ st.markdown(
         color: {chosen_text} !important;
     }}
     
-    /* User Input Text Box Override - Forced Clean White Background with Intense Dark Text */
+    /* User Input Text Box Override - Enforces clean solid white background with crisp dark values */
     div[data-testid="stTextInput"] div[data-baseweb="input"],
     div[data-testid="stTextInput"] div[data-baseweb="input"] > div {{
         background-color: #FFFFFF !important;
@@ -93,7 +126,7 @@ st.markdown(
         color: #666666 !important;
     }}
     
-    /* Command Button Layout Styling - Locks Text to Dark Regardless of Underlying Page Theme */
+    /* Command Button Layout Styling - Nullifies native Streamlit runtime dark theme font inversion */
     .stButton > button {{
         background-color: #FFFFFF !important;
         color: #111111 !important;
@@ -104,14 +137,12 @@ st.markdown(
         width: 100% !important;
         transition: background-color 0.2s ease;
     }}
-    
-    /* Forces internal component typography elements to stay dark */
     .stButton > button p, .stButton > button div, .stButton > button span {{
         color: #111111 !important;
         -webkit-text-fill-color: #111111 !important;
     }}
     
-    /* Hover Interaction Fix - Switches to Soft Light Gray instead of solid dark background masks */
+    /* Hover Interaction Fix - Controls safe transformation transitions into subtle soft gray steps */
     .stButton > button:hover {{
         background-color: #E6E6E6 !important;
         border: 2px solid #111111 !important;
@@ -121,7 +152,7 @@ st.markdown(
         -webkit-text-fill-color: #111111 !important;
     }}
     
-    /* 2. LEFT PANEL AREA (SIDEBAR CONTROL SIMULATOR - LOCKED DARK DESIGN) */
+    /* 2. LEFT PANEL AREA (SIDEBAR CONTROL SIMULATOR) locked layout styling */
     section[data-testid="stSidebar"] {{
         background-color: {SIDEBAR_BG} !important;
         border-right: 1px solid {SIDEBAR_BORDER} !important;
@@ -129,8 +160,6 @@ st.markdown(
     section[data-testid="stSidebar"] * {{
         color: {SIDEBAR_TEXT} !important;
     }}
-    
-    /* AC Selection Box in Sidebar */
     section[data-testid="stSidebar"] div[data-baseweb="select"] {{
         background-color: {SIDEBAR_WIDGET_BG} !important;
         border: 1px solid {SIDEBAR_BORDER} !important;
@@ -139,8 +168,6 @@ st.markdown(
     section[data-testid="stSidebar"] div[data-baseweb="select"] * {{
         color: {SIDEBAR_TEXT} !important;
     }}
-    
-    /* Open Listbox Dropdown Menus Inside the Sidebar Context */
     div[role="listbox"] {{
         background-color: {SIDEBAR_WIDGET_BG} !important;
         border: 1px solid {SIDEBAR_BORDER} !important;
@@ -173,12 +200,21 @@ st.session_state.ac_status_val = ac_status
 # 4. MAIN USER INTERACTION
 # ==========================================
 st.title("🏠 Smart Home AI Automation")
-st.write("Interact with your home using natural language powered by Azure AI Foundry.")
+st.write("Interact with your home using natural language powered by Azure AI Foundry and Azure IoT Hub.")
 
 user_command = st.text_input("Enter your command for the house:", placeholder="e.g., Turn off the lights and set temperature to 21 degrees")
 
 if st.button("Send Command"):
     if user_command:
+        # PIPELINE 1: Stream real-time edge metric values to your live Azure IoT Hub infrastructure
+        with st.spinner("📡 Transmitting real-time telemetry to Azure IoT Hub..."):
+            iot_success = asyncio.run(send_azure_iot_telemetry(current_temp, ac_status, st.session_state.current_light_hex))
+            if iot_success:
+                st.sidebar.success("⚡ IoT Hub: Connected & Sent!")
+            else:
+                st.sidebar.error("❌ IoT Hub: Telemetry Failed")
+
+        # PIPELINE 2: Request structured behavioral directives from Azure OpenAI endpoint
         st.write("🔄 *Azure AI Agent is updating home ambient parameters...*")
         
         house_context = f"Current Temp: {current_temp}°C, AC Status: {ac_status}, Current Light Hex: {st.session_state.current_light_hex}. User request: {user_command}"
@@ -195,7 +231,7 @@ if st.button("Send Command"):
             
             raw_content = response.choices[0].message.content.strip()
             
-            # SANITIZATION FILTER: Strips out unintended markdown formatting wrappers
+            # Sanitization loop: Sanitizes loose or trailing markdown container parameters from raw stream
             if raw_content.startswith("```"):
                 raw_content = re.sub(r"^```[a-zA-Z]*\n", "", raw_content)
                 raw_content = re.sub(r"\n```$", "", raw_content)
